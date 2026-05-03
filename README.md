@@ -18,7 +18,7 @@ A corpus indexer built in Python for the CS 3308 Information Retrieval course. I
 - [TF-IDF Calculation](#tf-idf-calculation)
 - [Memory Management](#memory-management)
 - [Dependencies](#dependencies)
-- [Results] (#results)
+- [Results](#results)
 
 ---
 
