@@ -411,7 +411,14 @@ if __name__ == '__main__':
         flush_block(cur)
 
     # ── Write index.dat ───────────────────────────────────────────────────────
+    """
+    Redacted Write File Line
+    It could be uncommented if you would like to write out an index dat file
+    but, I have commented it as index.dat is a really big file and if there
+    is not requirement it should be created.
+    
     write_index_dat(dat_path, cur, documents)
+    """
 
     con.commit()
     con.close()

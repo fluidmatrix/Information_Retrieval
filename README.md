@@ -1,6 +1,6 @@
-# 🔍 Inverted Index — CS 3308 Information Retrieval
+# 🔍 Inverted Index & Search Engine — CS 3308 Information Retrieval
 
-A corpus indexer built in Python for the CS 3308 Information Retrieval course. It recursively walks a document collection, applies a full NLP preprocessing pipeline, and builds a weighted inverted index backed by SQLite. All tf-idf scores are computed after the full corpus is processed, ensuring mathematically correct values across the entire collection.
+A corpus indexer and search engine built in Python for the CS 3308 Information Retrieval course. The indexer recursively walks a document collection (including HTML pages from the CACM / Reuters corpus), applies a full NLP preprocessing pipeline, and builds a weighted inverted index backed by SQLite. The search engine then queries that index using cosine similarity (TF-IDF vector space model) to rank documents by relevance.
 
 ---
 
@@ -8,14 +8,18 @@ A corpus indexer built in Python for the CS 3308 Information Retrieval course. I
 
 - [Features](#features)
 - [Project Structure](#project-structure)
-- [How It Works](#how-it-works)
+- [Quick Start](#quick-start)
+- [How the Indexer Works](#how-the-indexer-works)
+- [How the Search Engine Works](#how-the-search-engine-works)
 - [Database Schema](#database-schema)
 - [index.dat Format](#indexdat-format)
 - [Configuration](#configuration)
 - [Running the Indexer](#running-the-indexer)
+- [Running the Search Engine](#running-the-search-engine)
 - [Sample Output](#sample-output)
 - [Token Filtering Pipeline](#token-filtering-pipeline)
 - [TF-IDF Calculation](#tf-idf-calculation)
+- [Cosine Similarity & Simpson Algorithm](#cosine-similarity--simpson-algorithm)
 - [Memory Management](#memory-management)
 - [Dependencies](#dependencies)
 - [Results](#results)
@@ -24,16 +28,26 @@ A corpus indexer built in Python for the CS 3308 Information Retrieval course. I
 
 ## ✨ Features
 
+### Indexer
+- **HTML-aware parsing** — strips all HTML tags, attributes, and script/style blocks before tokenising, so only visible document text is indexed
 - **Recursive directory traversal** — walks any nested folder structure and indexes every file it finds
-- **Porter Stemmer** — full 5-step implementation reduces inflected forms to their common root (`running` → `run`, `algorithm` → `algorithm`)
-- **Stop word removal** — 75-word list filtered before stemming for efficiency; stop word hit count reported in final stats
-- **Multi-stage token filtering** — removes punctuation-leading tokens, single/double-character tokens, and pure numeric tokens
-- **Correct DF accumulation** — document frequency is incremented across documents via SQLite `UPDATE`, not overwritten, so terms appearing in many documents reflect true cross-document counts
-- **Deferred TF-IDF scoring** — scores are computed in a single pass at the end when `N` (total document count) is finalised, guaranteeing accuracy
-- **Per-document memory flushing** — in-memory index is written to disk and cleared after every document, keeping memory usage bounded regardless of corpus size
-- **SQLite backend** — three indexed tables (`DocumentDictionary`, `TermDictionary`, `Posting`) with autocommit
-- **`index.dat` human-readable output** — cross-platform UTF-8 flat file showing every term with its `DF`, `IDF`, and per-document `TF` / `TF-IDF` postings
-- **Processing statistics** — prints document count, total tokens, unique terms, and stop word hits at completion
+- **Porter Stemmer** — full 5-step implementation reduces inflected forms to their common root (`running` → `run`)
+- **Stop word removal** — 75-word list filtered before stemming for efficiency
+- **Multi-stage token filtering** — removes punctuation-leading tokens, short tokens (≤ 2 chars), and pure numeric tokens
+- **Correct DF accumulation** — document frequency is incremented across documents via SQLite `UPDATE`, never overwritten
+- **Deferred TF-IDF scoring** — scores are computed in a single final pass once `N` (total document count) is finalised
+- **Per-document memory flushing** — in-memory index is cleared after every document, keeping memory usage bounded
+- **SQLite backend** — three indexed tables with autocommit
+- **`index.dat` human-readable output** — UTF-8 flat file showing every term with `DF`, `IDF`, and per-document `TF` / `TF-IDF`
+
+### Search Engine
+- **Bag-of-words query** — enter multiple terms separated by spaces
+- **AND semantics** — only documents containing **all** query terms are returned
+- **Same preprocessing pipeline** — query terms go through the identical stop word, filter, and stemming steps used during indexing, ensuring exact stem matching
+- **Cosine similarity ranking** — documents are scored and sorted by TF-IDF vector cosine similarity
+- **Simpson algorithm output** — cosine similarity score (the Simpson relevance score) is printed for each result
+- **Top 20 results** — displays up to 20 ranked documents with filename, cosine score, and total candidate count
+- **Start / end timestamps** — query processing time is printed for every search
 
 ---
 
@@ -41,15 +55,33 @@ A corpus indexer built in Python for the CS 3308 Information Retrieval course. I
 
 ```
 .
-├── indexer_part3.py   # Main indexer script
-├── index.dat          # Generated: human-readable inverted index
-├── indexer_part3.db   # Generated: SQLite database
+├── indexer_part3.py   # Step 1 — builds the inverted index from the corpus
+├── search_engine.py   # Step 2 — interactive search over the built index
+├── index_explorer.py  # Optional — diagnostic tool to browse index contents
+├── index.dat          # Generated by indexer: human-readable inverted index
+├── indexer_part3.db   # Generated by indexer: SQLite database
 └── README.md
 ```
 
+> **Important:** `indexer_part3.py` must be run **before** `search_engine.py`. The search engine reads from `indexer_part3.db`, which only exists after the indexer has been run.
+
 ---
 
-## ⚙️ How It Works
+## 🚀 Quick Start
+
+```bash
+# Step 1 — build the index (run once, or whenever the corpus changes)
+python indexer_part3.py
+
+# Step 2 — launch the interactive search engine
+python search_engine.py
+```
+
+Both scripts default to the same working directory, so the database path resolves automatically. See [Configuration](#configuration) if your corpus or database is in a different location.
+
+---
+
+## ⚙️ How the Indexer Works
 
 The indexer follows this pipeline for each document in the corpus:
 
@@ -57,37 +89,86 @@ The indexer follows this pipeline for each document in the corpus:
 Document File
      │
      ▼
+Detect file type (HTML or plain text)
+     │
+     ├── HTML (.html / .htm / .xhtml / .sgml / .sgm)
+     │        │
+     │        ▼
+     │   Strip tags, attributes, <script>, <style>, <head>
+     │   Extract visible text only
+     │
+     └── Plain text — read line by line unchanged
+          │
+          ▼
 Split into raw tokens  (regex \W+)
-     │
-     ▼
+          │
+          ▼
 Lowercase + strip whitespace
-     │
-     ▼
+          │
+          ▼
 Stop word filter  ──── match? ──► discard, increment stop_word_hits
-     │
-     ▼
+          │
+          ▼
 Structural filters
   • starts with punctuation  ──► discard
   • length ≤ 2               ──► discard
   • pure number              ──► discard
-     │
-     ▼
+          │
+          ▼
 Porter Stemmer (5 steps)
-     │
-     ▼
+          │
+          ▼
 Post-stem length guard (≤ 2 chars) ──► discard
-     │
-     ▼
+          │
+          ▼
 SQLite TermId lookup (reuse existing ID or mint new one)
-     │
-     ▼
+          │
+          ▼
 Accumulate in-memory { stemmed_term → Term(termid, docs, docids{}) }
-     │
-     ▼
+          │
+          ▼
 [End of document]  →  flush_block()  →  database.clear()
 ```
 
 After **all** documents are processed, a final pass recomputes TF-IDF with the true `N` and writes `index.dat`.
+
+---
+
+## 🔎 How the Search Engine Works
+
+```
+User enters query string
+          │
+          ▼
+Apply same preprocessing pipeline as indexer
+(lowercase → stop words → filters → Porter Stemming)
+          │
+          ▼
+For each unique query term:
+  Query SQLite Posting table for all (DocId, TF, DF) rows
+  If any term is missing from the index → return 0 results (AND logic)
+          │
+          ▼
+AND intersection:
+  Keep only DocIds present in every term's posting list
+          │
+          ▼
+For each surviving document:
+  Build document TF-IDF vector  (w_doc = tf_doc × idf)
+  Build query TF-IDF vector     (w_qry = tf_qry × idf)
+  Compute cosine similarity
+          │
+          ▼
+Sort results descending by cosine similarity
+          │
+          ▼
+Print top 20 results:
+  • Rank
+  • Document filename
+  • Cosine similarity score  (Simpson relevance score)
+  • Total candidates retrieved
+  • [Simpson algorithm] label
+```
 
 ---
 
@@ -114,13 +195,13 @@ After **all** documents are processed, a final pass recomputes TF-IDF with the t
 ---
 
 ### `Posting`
-| Column      | Type | Description                                          |
-|-------------|------|------------------------------------------------------|
-| `TermId`    | INT  | Foreign key → `TermDictionary.TermId`                |
-| `DocId`     | INT  | Foreign key → `DocumentDictionary.DocId`             |
-| `tfidf`     | REAL | Final weighted TF-IDF score for this (term, doc) pair |
-| `docfreq`   | INT  | Number of documents containing this term (DF)        |
-| `termfreq`  | INT  | Raw count of term occurrences in this document (TF)  |
+| Column      | Type | Description                                           |
+|-------------|------|-------------------------------------------------------|
+| `TermId`    | INT  | Foreign key → `TermDictionary.TermId`                 |
+| `DocId`     | INT  | Foreign key → `DocumentDictionary.DocId`              |
+| `tfidf`     | REAL | Final TF-IDF score for this (term, doc) pair          |
+| `docfreq`   | INT  | Number of documents containing this term (DF)         |
+| `termfreq`  | INT  | Raw count of term occurrences in this document (TF)   |
 
 **Indexes:** `idxPosting1` on `TermId`, `idxPosting2` on `DocId`
 
@@ -128,7 +209,7 @@ After **all** documents are processed, a final pass recomputes TF-IDF with the t
 
 ## 📄 `index.dat` Format
 
-One block is written per unique term, ordered by `TermId`. The file opens in any text editor on any OS (UTF-8).
+One block is written per unique term, ordered by `TermId`. The file is UTF-8 and opens in any text editor.
 
 ```
 ========================================================================
@@ -157,38 +238,50 @@ POSTINGS   :
 ------------------------------------------------------------------------
 ```
 
-> **Note:** Term strings are Porter-stemmed. `retriev` is the stem of *retrieval*, *retrieve*, *retrieves*, etc. Terms with high DF get a low IDF (common across the corpus); terms with low DF get a high IDF (rare and discriminating).
+> **Note:** Term strings are Porter-stemmed. `retriev` is the stem of *retrieval*, *retrieve*, *retrieves*, etc. Rare terms (low DF) receive a high IDF and are more discriminating; common terms (high DF) receive a low IDF.
 
 ---
 
 ## 🔧 Configuration
 
-All three output paths are set at the top of the `__main__` block:
+### Indexer (`indexer_part3.py`)
+
+Edit the three paths at the top of the `__main__` block:
 
 ```python
-folder   = "c:/reuters_corpus"   # path to your document corpus
-db_path  = "c:/indexer_part3.db" # SQLite database output
-dat_path = "c:/index.dat"        # human-readable flat index file
+folder   = "cacm"             # path to the document corpus folder
+db_path  = "indexer_part3.db" # SQLite database output (relative or absolute)
+dat_path = "index.dat"        # human-readable flat index file
 ```
 
-Change these to match your environment before running. On Linux/macOS use forward-slash paths, e.g. `/home/user/corpus`.
+### Search Engine (`search_engine.py`)
+
+Edit the single path near the top of the `__main__` block:
+
+```python
+DB_PATH = "indexer_part3.db"  # must point to the same .db the indexer wrote
+```
+
+Both files default to the **same relative path** (`indexer_part3.db` in the working directory), so if you run both scripts from the same folder no changes are needed.
+
+On Linux / macOS use forward-slash paths, e.g. `/home/user/corpus`. On Windows either use raw strings (`r"C:\data\corpus"`) or forward slashes (`"C:/data/corpus"`).
 
 ---
 
 ## ▶️ Running the Indexer
 
-**Requirements:** Python 3.x (no third-party packages — uses only the standard library)
+**Requirements:** Python 3.x — no third-party packages needed (standard library only)
 
 ```bash
 python indexer_part3.py
 ```
 
-The script will print progress timestamps and a final statistics block:
+The script prints progress timestamps and a final statistics block:
 
 ```
 Start Time: 14:32
 Indexing Complete: 14:35
-index.dat written  : c:/index.dat
+index.dat written  : index.dat
 
 ========== Indexer Statistics ==========
 Documents processed      : 570
@@ -199,16 +292,61 @@ End Time                 : 14:35
 =========================================
 ```
 
+Once this completes, `indexer_part3.db` and `index.dat` are ready in the working directory.
+
+---
+
+## 🔎 Running the Search Engine
+
+> **Prerequisite:** run `indexer_part3.py` first so that `indexer_part3.db` exists.
+
+```bash
+python search_engine.py
+```
+
+The engine will display the corpus size, then prompt for queries in a loop. Type `quit` to exit.
+
+```
+============================================================
+  Search Engine
+  Database  : indexer_part3.db
+  Corpus    : 570 documents indexed
+============================================================
+
+Enter search terms (or 'quit' to exit):
+```
+
+### Entering a query
+
+Type one or more terms separated by spaces and press Enter. The engine applies the same preprocessing as the indexer (stop word removal, stemming, etc.) before searching.
+
+```
+Enter search terms (or 'quit' to exit): information retrieval
+```
+
+### Understanding zero results
+
+If a query term does not appear in the index, zero results are returned. This is expected AND correct behaviour — it means either:
+
+1. The term is genuinely absent from the corpus (e.g. `home` / `mortgage` in the CACM computer-science corpus), or
+2. The stemmed form does not match any indexed stem.
+
+The engine prints the stemmed form of each query term so you can verify which stem was looked up:
+
+```
+Stemmed terms : inform, retriev
+```
+
 ---
 
 ## 📊 Sample Output
 
-### Console
+### Indexer console
 
 ```
 Start Time: 09:14
 Indexing Complete: 09:17
-index.dat written  : c:/index.dat
+index.dat written  : index.dat
 
 ========== Indexer Statistics ==========
 Documents processed      : 570
@@ -219,9 +357,45 @@ End Time                 : 09:17
 =========================================
 ```
 
-### SQLite Query Examples
+### Search engine console
 
-Query all postings for the term `"retriev"`:
+```
+============================================================
+  Search Engine
+  Database  : indexer_part3.db
+  Corpus    : 570 documents indexed
+============================================================
+
+Enter search terms (or 'quit' to exit): information retrieval
+
+Search started : 10:45:03
+  Stemmed terms : inform, retriev
+
+------------------------------------------------------------
+  Total candidates retrieved : 18
+  Displaying top 18 result(s)
+------------------------------------------------------------
+  Rank 1
+    Document   : cacm\cacm\CACM-0440.html
+    Cosine sim : 0.987432
+    Candidates : 18
+    [Simpson algorithm] cosine-similarity TF-IDF ranking
+
+  Rank 2
+    Document   : cacm\cacm\CACM-0329.html
+    Cosine sim : 0.943201
+    Candidates : 18
+    [Simpson algorithm] cosine-similarity TF-IDF ranking
+
+  ...
+
+Search ended   : 10:45:03
+------------------------------------------------------------
+```
+
+### SQLite query examples
+
+Query all postings for the stem `"retriev"`:
 
 ```sql
 SELECT t.Term, p.DocId, p.termfreq, p.docfreq, p.tfidf
@@ -246,7 +420,7 @@ LIMIT 10;
 
 ## 🔬 Token Filtering Pipeline
 
-Filters are applied in this exact order, so cheaper checks come first:
+Filters are applied in this exact order so cheaper checks run first:
 
 | Step | Filter | Example discarded |
 |------|--------|-------------------|
@@ -257,11 +431,13 @@ Filters are applied in this exact order, so cheaper checks come first:
 | 5 | Porter Stemming applied | `running` → `run` |
 | 6 | Post-stem length ≤ 2 | stems that collapse too short |
 
+The same pipeline runs on **both** the indexer and the search engine query, guaranteeing that a user's raw query term always maps to the identical stem stored in the index.
+
 ---
 
 ## 📐 TF-IDF Calculation
 
-The indexer uses the standard vector space model weighting:
+The system uses the standard vector space model weighting:
 
 $$\text{tf-idf}_{t,d} = \text{tf}_{t,d} \times \text{idf}_t$$
 
@@ -269,12 +445,28 @@ Where:
 
 $$\text{idf}_t = \log\left(\frac{N}{df_t}\right)$$
 
-- **tf** — raw count of term `t` in document `d`
+- **tf** — raw count of term `t` in document `d` (or in the query string)
 - **df** — number of documents in the collection containing term `t`
 - **N** — total number of documents in the collection
 - **idf** — uses natural log (`math.log`)
 
-> TF-IDF is computed in a **single final pass** after all documents are indexed. This is important because `N` is only known once the entire corpus has been walked — computing scores mid-run would use an incorrect, partial `N`.
+> TF-IDF is computed in a **single final pass** after all documents are indexed. This ensures `N` is the true collection size, not a partial count mid-run.
+
+---
+
+## 📐 Cosine Similarity & Simpson Algorithm
+
+The search engine ranks documents using cosine similarity between the query vector and each document vector:
+
+$$\cos(q, d) = \frac{\sum_{t} w_q(t) \cdot w_d(t)}{\sqrt{\sum_{t} w_q(t)^2} \times \sqrt{\sum_{t} w_d(t)^2}}$$
+
+Where:
+- $w_q(t) = \text{tf}_{t,q} \times \text{idf}_t$ — query term weight
+- $w_d(t) = \text{tf}_{t,d} \times \text{idf}_t$ — document term weight
+
+A score of `1.0` means perfect alignment; `0.0` means no overlap in weighted term space.
+
+**Simpson algorithm** is the term used in this assignment for the cosine similarity relevance score. The label `[Simpson algorithm] cosine-similarity TF-IDF ranking` printed alongside each result confirms that the ranking was produced by this normalised dot-product method. Documents that match more query terms, or match them with higher frequency, receive proportionally higher scores.
 
 ---
 
@@ -283,24 +475,25 @@ $$\text{idf}_t = \log\left(\frac{N}{df_t}\right)$$
 The indexer is designed to handle arbitrarily large corpora without running out of memory:
 
 - The in-memory `database` dictionary only ever holds the vocabulary of the **current document** being processed
-- Immediately after each document's `process()` call returns, `flush_block()` writes all terms and postings to SQLite and calls `database.clear()`
-- There is no fixed term count limit — the bound is one document's vocabulary at a time
-- Term IDs are persisted across flushes: `parsetoken()` queries `TermDictionary` before assigning a new ID, so the same term in different documents always maps to the same integer
+- Immediately after each document finishes, `flush_block()` writes all accumulated terms and postings to SQLite and clears the dictionary
+- There is no fixed term count limit — peak memory is bounded by one document's vocabulary
+- Term IDs are persisted across flushes: `parsetoken()` queries `TermDictionary` before assigning a new ID, so the same term across different documents always maps to the same integer
 
 ---
 
 ## 📦 Dependencies
 
-| Library   | Use                                      | Source          |
-|-----------|------------------------------------------|-----------------|
-| `sqlite3` | Persistent inverted index storage        | Python stdlib   |
-| `math`    | `log()` for IDF calculation              | Python stdlib   |
-| `re`      | Regex tokenisation (`\W+` split)         | Python stdlib   |
-| `os`      | Recursive directory walking              | Python stdlib   |
-| `string`  | `string.punctuation` for filter check   | Python stdlib   |
-| `time`    | Timestamps and `index.dat` generation   | Python stdlib   |
+| Library      | Use                                        | Source        |
+|--------------|--------------------------------------------|---------------|
+| `sqlite3`    | Persistent inverted index storage          | Python stdlib |
+| `math`       | `log()` for IDF calculation                | Python stdlib |
+| `re`         | Regex tokenisation (`\W+` split)           | Python stdlib |
+| `os`         | Recursive directory walking                | Python stdlib |
+| `string`     | `string.punctuation` for filter check      | Python stdlib |
+| `time`       | Timestamps and `index.dat` generation      | Python stdlib |
+| `html.parser`| HTML tag stripping (indexer only)          | Python stdlib |
 
-No `pip install` required.
+No `pip install` required. Python 3.x only.
 
 ---
 
@@ -308,6 +501,8 @@ No `pip install` required.
 
 Built for academic use — CS 3308 Information Retrieval, University of the People.
 
-## 📜 Results
+---
 
-![Results](<result.png>)
+## 📊 Results
+
+![Results](result.png)
