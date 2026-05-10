@@ -63,7 +63,7 @@ A corpus indexer and search engine built in Python for the CS 3308 Information R
 └── README.md
 ```
 
-> **Important:** `indexer_part3.py` must be run **before** `search_engine.py`. The search engine reads from `indexer_part3.db`, which only exists after the indexer has been run.
+> **Important:** `Code_Indexer_part2.py` must be run **before** `Code_Indexer_part5.py`. The search engine reads from `indexer_part3.db`, which only exists after the indexer has been run.
 
 ---
 
@@ -71,10 +71,10 @@ A corpus indexer and search engine built in Python for the CS 3308 Information R
 
 ```bash
 # Step 1 — build the index (run once, or whenever the corpus changes)
-python indexer_part3.py
+python Code_Indexer_part2.py
 
 # Step 2 — launch the interactive search engine
-python search_engine.py
+python Code_Indexer_part5.py
 ```
 
 Both scripts default to the same working directory, so the database path resolves automatically. See [Configuration](#configuration) if your corpus or database is in a different location.
@@ -254,7 +254,7 @@ db_path  = "indexer_part3.db" # SQLite database output (relative or absolute)
 dat_path = "index.dat"        # human-readable flat index file
 ```
 
-### Search Engine (`search_engine.py`)
+### Search Engine (`Code_Indexer_part5.py`)
 
 Edit the single path near the top of the `__main__` block:
 
@@ -298,10 +298,10 @@ Once this completes, `indexer_part3.db` and `index.dat` are ready in the working
 
 ## 🔎 Running the Search Engine
 
-> **Prerequisite:** run `indexer_part3.py` first so that `indexer_part3.db` exists.
+> **Prerequisite:** run `Code_Indexer_part2.py` first so that `indexer_part3.db` exists.
 
 ```bash
-python search_engine.py
+python Code_Indexer_part5.py
 ```
 
 The engine will display the corpus size, then prompt for queries in a loop. Type `quit` to exit.
@@ -506,3 +506,5 @@ Built for academic use — CS 3308 Information Retrieval, University of the Peop
 ## 📊 Results
 
 ![Results](result.png)
+
+![Results](result2.png)
