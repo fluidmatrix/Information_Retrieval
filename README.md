@@ -1,34 +1,38 @@
-# 🔍 Inverted Index & Search Engine — CS 3308 Information Retrieval
+# 🔍 Inverted Index, Search Engine & Web Crawler — CS 3308 Information Retrieval
 
-A corpus indexer and search engine built in Python for the CS 3308 Information Retrieval course. The indexer recursively walks a document collection (including HTML pages from the CACM / Reuters corpus), applies a full NLP preprocessing pipeline, and builds a weighted inverted index backed by SQLite. The search engine then queries that index using cosine similarity (TF-IDF vector space model) to rank documents by relevance.
+A corpus indexer, search engine, and web crawler built in Python for the CS 3308 Information Retrieval course. The indexer recursively walks a document collection (including HTML pages from the CACM / Reuters corpus), applies a full NLP preprocessing pipeline, and builds a weighted inverted index backed by SQLite. The search engine queries that index using cosine similarity (TF-IDF vector space model) to rank documents by relevance. The web crawler extends the system to index live websites via depth-first traversal.
 
 ---
 
 ## 📋 Table of Contents
 
-- [Features](#features)
-- [Project Structure](#project-structure)
-- [Quick Start](#quick-start)
-- [How the Indexer Works](#how-the-indexer-works)
-- [How the Search Engine Works](#how-the-search-engine-works)
-- [Database Schema](#database-schema)
-- [index.dat Format](#indexdat-format)
-- [Configuration](#configuration)
-- [Running the Indexer](#running-the-indexer)
-- [Running the Search Engine](#running-the-search-engine)
-- [Sample Output](#sample-output)
-- [Token Filtering Pipeline](#token-filtering-pipeline)
-- [TF-IDF Calculation](#tf-idf-calculation)
-- [Cosine Similarity & Simpson Algorithm](#cosine-similarity--simpson-algorithm)
-- [Memory Management](#memory-management)
-- [Dependencies](#dependencies)
-- [Results](#results)
+- [Features](#-features)
+- [Project Structure](#-project-structure)
+- [Quick Start](#-quick-start)
+- [How the Indexer Works](#️-how-the-indexer-works)
+- [How the Web Crawler Works](#️-how-the-web-crawler-works)
+- [How the Search Engine Works](#-how-the-search-engine-works)
+- [Database Schema](#️-database-schema)
+- [index.dat Format](#-indexdat-format)
+- [Configuration](#-configuration)
+- [Running the Indexer](#️-running-the-indexer)
+- [Running the Web Crawler](#️-running-the-web-crawler)
+- [Running the Search Engine](#-running-the-search-engine)
+- [Coloured Console Output](#-coloured-console-output)
+- [Sample Output](#-sample-output)
+- [Token Filtering Pipeline](#-token-filtering-pipeline)
+- [TF-IDF Calculation](#-tf-idf-calculation)
+- [Cosine Similarity & Simpson Algorithm](#-cosine-similarity--simpson-algorithm)
+- [Memory Management](#-memory-management)
+- [Dependencies](#-dependencies)
+- [Results](#-results)
 
 ---
 
 ## ✨ Features
 
 ### Indexer
+
 - **HTML-aware parsing** — strips all HTML tags, attributes, and script/style blocks before tokenising, so only visible document text is indexed
 - **Recursive directory traversal** — walks any nested folder structure and indexes every file it finds
 - **Porter Stemmer** — full 5-step implementation reduces inflected forms to their common root (`running` → `run`)
@@ -40,7 +44,17 @@ A corpus indexer and search engine built in Python for the CS 3308 Information R
 - **SQLite backend** — three indexed tables with autocommit
 - **`index.dat` human-readable output** — UTF-8 flat file showing every term with `DF`, `IDF`, and per-document `TF` / `TF-IDF`
 
+### Web Crawler *(new)*
+
+- **Depth-first traversal** — uses a stack-based DFS to follow links from a user-supplied seed URL
+- **URL frontier limit** — stops adding new links once 500 URLs are queued, preventing unbounded memory growth
+- **HTML stripping** — uses BeautifulSoup when available, with a regex fallback, to extract plain text before indexing
+- **Shared indexing pipeline** — imports `parsetoken`, `flush_block`, `write_index_dat`, `STOP_WORDS`, `PorterStemmer`, and `Term` directly from the existing repo modules — zero code duplication
+- **Coloured console output** — ANSI escape sequences colour-code progress, errors, warnings, and statistics for readability
+- **Same SQLite schema** — produces an identical `DocumentDictionary` / `TermDictionary` / `Posting` database, so `Code_Indexer_part5.py` can search a web-crawled index without modification
+
 ### Search Engine
+
 - **Bag-of-words query** — enter multiple terms separated by spaces
 - **AND semantics** — only documents containing **all** query terms are returned
 - **Same preprocessing pipeline** — query terms go through the identical stop word, filter, and stemming steps used during indexing, ensuring exact stem matching
@@ -54,30 +68,47 @@ A corpus indexer and search engine built in Python for the CS 3308 Information R
 ## 📁 Project Structure
 
 ```
-.
-├── indexer_part3.py   # Step 1 — builds the inverted index from the corpus
-├── search_engine.py   # Step 2 — interactive search over the built index
-├── index_explorer.py  # Optional — diagnostic tool to browse index contents
-├── index.dat          # Generated by indexer: human-readable inverted index
-├── indexer_part3.db   # Generated by indexer: SQLite database
+Information_Retrieval/
+│
+├── PorterStemmer.py          # Porter Stemmer class (5-step algorithm)
+├── Term.py                   # Term data class (termid, docs, docids)
+│
+├── Code_Indexer_part2.py     # Step 1 — builds the inverted index from a local corpus
+├── Code_Indexer_part5.py     # Step 2 — interactive search engine over the built index
+├── webcrawler_indexer.py     # Step 3 — web crawler that indexes live websites
+│
+├── cacm/cacm/                # CACM corpus (HTML documents)
+├── index.dat                 # Generated: human-readable inverted index
+├── indexer_part3.db          # Generated: SQLite database (local corpus)
+├── webcrawler.db             # Generated: SQLite database (web-crawled corpus)
 └── README.md
 ```
 
-> **Important:** `Code_Indexer_part2.py` must be run **before** `Code_Indexer_part5.py`. The search engine reads from `indexer_part3.db`, which only exists after the indexer has been run.
+> **Module design:** `webcrawler_indexer.py` imports `PorterStemmer`, `Term`, and all shared indexing helpers directly from the existing modules. No logic is duplicated across files.
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
-# Step 1 — build the index (run once, or whenever the corpus changes)
+# ── Local corpus workflow ──────────────────────────────────────────
+# Step 1 — build the index from the CACM / Reuters corpus
 python Code_Indexer_part2.py
 
 # Step 2 — launch the interactive search engine
 python Code_Indexer_part5.py
-```
 
-Both scripts default to the same working directory, so the database path resolves automatically. See [Configuration](#configuration) if your corpus or database is in a different location.
+# ── Web crawler workflow ───────────────────────────────────────────
+# Optional: install BeautifulSoup for best HTML stripping quality
+pip install beautifulsoup4
+
+# Step 3 — crawl a website and build a live index
+python webcrawler_indexer.py
+# >>> Enter URL to crawl (must be in the form http://www.domain.com): http://example.com
+
+# Step 2 — search the crawled index (update DB_PATH in the script first)
+python Code_Indexer_part5.py
+```
 
 ---
 
@@ -134,6 +165,74 @@ After **all** documents are processed, a final pass recomputes TF-IDF with the t
 
 ---
 
+## 🕷️ How the Web Crawler Works
+
+`webcrawler_indexer.py` extends the indexer to crawl live websites. It reuses the indexer's entire preprocessing pipeline by importing directly from the existing modules.
+
+```
+User enters seed URL
+          │
+          ▼
+Push seed URL onto stack  (tocrawl)
+          │
+          ▼
+┌─── Pop URL from stack  (depth-first) ──────────────────────────────┐
+│         │                                                           │
+│         ▼                                                           │
+│   Already crawled?  ──► yes ──► skip                               │
+│         │ no                                                        │
+│         ▼                                                           │
+│   Binary extension? (.pdf / .jpg / …)  ──► skip                    │
+│         │                                                           │
+│         ▼                                                           │
+│   Fetch raw HTML  (urllib, 10 s timeout)                           │
+│         │                                                           │
+│         ├── fetch error  ──► log in RED, skip                      │
+│         │                                                           │
+│         ▼                                                           │
+│   strip_html()  →  plain text                                      │
+│   (BeautifulSoup if installed, regex fallback otherwise)           │
+│         │                                                           │
+│         ▼                                                           │
+│   parsetoken()  [imported from Code_Indexer_part2]                 │
+│         │                                                           │
+│         ▼                                                           │
+│   flush_block()  [imported from Code_Indexer_part2]                │
+│   Writes in-memory index to SQLite, then clears memory             │
+│         │                                                           │
+│         ▼                                                           │
+│   Extract all <a href="…"> links                                   │
+│   Normalise relative → absolute URLs                               │
+│   Add to stack if frontier < 500                                   │
+└────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+[All URLs processed or frontier exhausted]
+          │
+          ▼
+write_index_dat()  [imported from Code_Indexer_part2]
+Recomputes TF-IDF with true N, writes index.dat
+          │
+          ▼
+Print coloured statistics block
+```
+
+### Module import map
+
+The crawler contains **no duplicated logic**. Every shared component is imported:
+
+| Imported symbol | Source module | Purpose |
+|---|---|---|
+| `PorterStemmer` | `PorterStemmer.py` | Token stemming |
+| `Term` | `Term.py` | In-memory term data object |
+| `STOP_WORDS` | `Code_Indexer_part2.py` | 75-word stop list |
+| `parsetoken()` | `Code_Indexer_part2.py` | Tokenise + accumulate one line |
+| `flush_block()` | `Code_Indexer_part2.py` | Persist memory → SQLite, clear |
+| `write_index_dat()` | `Code_Indexer_part2.py` | Final TF-IDF pass + index.dat |
+| `database`, counters | `Code_Indexer_part2.py` | Shared mutable state |
+
+---
+
 ## 🔎 How the Search Engine Works
 
 ```
@@ -174,34 +273,39 @@ Print top 20 results:
 
 ## 🗄️ Database Schema
 
+All three scripts share the same table definitions, so a database produced by any one of them can be queried by `Code_Indexer_part5.py` without changes.
+
 ### `DocumentDictionary`
-| Column         | Type | Description                        |
-|----------------|------|------------------------------------|
-| `DocumentName` | TEXT | Full file path of the document     |
-| `DocId`        | INT  | Auto-incrementing document integer |
+
+| Column | Type | Description |
+|---|---|---|
+| `DocumentName` | TEXT | File path (local corpus) or full URL (web crawler) |
+| `DocId` | INT | Auto-incrementing document integer |
 
 **Index:** `idxDocumentDictionary` on `DocId`
 
 ---
 
 ### `TermDictionary`
-| Column   | Type | Description                          |
-|----------|------|--------------------------------------|
-| `Term`   | TEXT | Stemmed term string                  |
-| `TermId` | INT  | Unique integer assigned to each term |
+
+| Column | Type | Description |
+|---|---|---|
+| `Term` | TEXT | Stemmed term string |
+| `TermId` | INT | Unique integer assigned to each term |
 
 **Index:** `idxTermDictionary` on `TermId`
 
 ---
 
 ### `Posting`
-| Column      | Type | Description                                           |
-|-------------|------|-------------------------------------------------------|
-| `TermId`    | INT  | Foreign key → `TermDictionary.TermId`                 |
-| `DocId`     | INT  | Foreign key → `DocumentDictionary.DocId`              |
-| `tfidf`     | REAL | Final TF-IDF score for this (term, doc) pair          |
-| `docfreq`   | INT  | Number of documents containing this term (DF)         |
-| `termfreq`  | INT  | Raw count of term occurrences in this document (TF)   |
+
+| Column | Type | Description |
+|---|---|---|
+| `TermId` | INT | Foreign key → `TermDictionary.TermId` |
+| `DocId` | INT | Foreign key → `DocumentDictionary.DocId` |
+| `tfidf` | REAL | Final TF-IDF score for this (term, doc) pair |
+| `docfreq` | INT | Number of documents containing this term (DF) |
+| `termfreq` | INT | Raw count of term occurrences in this document (TF) |
 
 **Indexes:** `idxPosting1` on `TermId`, `idxPosting2` on `DocId`
 
@@ -244,7 +348,7 @@ POSTINGS   :
 
 ## 🔧 Configuration
 
-### Indexer (`indexer_part3.py`)
+### Indexer (`Code_Indexer_part2.py`)
 
 Edit the three paths at the top of the `__main__` block:
 
@@ -254,29 +358,34 @@ db_path  = "indexer_part3.db" # SQLite database output (relative or absolute)
 dat_path = "index.dat"        # human-readable flat index file
 ```
 
+### Web Crawler (`webcrawler_indexer.py`)
+
+Edit the two paths near the top of the `__main__` block:
+
+```python
+db_path  = "webcrawler.db"  # separate database so it does not overwrite the local index
+dat_path = "index.dat"      # overwritten each run; rename if you want to keep both
+```
+
 ### Search Engine (`Code_Indexer_part5.py`)
 
 Edit the single path near the top of the `__main__` block:
 
 ```python
-DB_PATH = "indexer_part3.db"  # must point to the same .db the indexer wrote
+DB_PATH = "indexer_part3.db"  # point to indexer_part3.db or webcrawler.db
 ```
 
-Both files default to the **same relative path** (`indexer_part3.db` in the working directory), so if you run both scripts from the same folder no changes are needed.
-
-On Linux / macOS use forward-slash paths, e.g. `/home/user/corpus`. On Windows either use raw strings (`r"C:\data\corpus"`) or forward slashes (`"C:/data/corpus"`).
+On Linux / macOS use forward-slash paths (e.g. `/home/user/corpus`). On Windows use either raw strings (`r"C:\data\corpus"`) or forward slashes (`"C:/data/corpus"`).
 
 ---
 
 ## ▶️ Running the Indexer
 
-**Requirements:** Python 3.x — no third-party packages needed (standard library only)
+**Requirements:** Python 3.x — standard library only, no `pip install` needed.
 
 ```bash
-python indexer_part3.py
+python Code_Indexer_part2.py
 ```
-
-The script prints progress timestamps and a final statistics block:
 
 ```
 Start Time: 14:32
@@ -292,19 +401,56 @@ End Time                 : 14:35
 =========================================
 ```
 
-Once this completes, `indexer_part3.db` and `index.dat` are ready in the working directory.
+---
+
+## 🕷️ Running the Web Crawler
+
+**Requirements:** Python 3.x. BeautifulSoup is optional but recommended for cleaner HTML stripping.
+
+```bash
+# Recommended (better HTML text extraction)
+pip install beautifulsoup4
+
+python webcrawler_indexer.py
+```
+
+You will be prompted for a seed URL:
+
+```
+══════════════════════════════════════════════
+  Web Crawler + Indexer  starting...
+  Target  : http://example.com
+  DB      : webcrawler.db
+  Index   : index.dat
+══════════════════════════════════════════════
+  Start Time: 14:03
+```
+
+The crawler then prints a live feed for every page it visits (see [Coloured Console Output](#-coloured-console-output)), and finishes with a statistics block:
+
+```
+══════════════════════════════════════════════
+  Crawler Statistics
+══════════════════════════════════════════════
+  Documents processed   : 473
+  Total tokens parsed   : 2751668
+  Unique terms in index : 16056
+  Stop word matches     : 340221
+  End Time              : 15:12
+══════════════════════════════════════════════
+```
+
+To search the crawled index, open `Code_Indexer_part5.py` and set `DB_PATH = "webcrawler.db"` before running.
 
 ---
 
 ## 🔎 Running the Search Engine
 
-> **Prerequisite:** run `Code_Indexer_part2.py` first so that `indexer_part3.db` exists.
+> **Prerequisite:** run `Code_Indexer_part2.py` (or `webcrawler_indexer.py`) first so the database exists.
 
 ```bash
 python Code_Indexer_part5.py
 ```
-
-The engine will display the corpus size, then prompt for queries in a loop. Type `quit` to exit.
 
 ```
 ============================================================
@@ -316,22 +462,11 @@ The engine will display the corpus size, then prompt for queries in a loop. Type
 Enter search terms (or 'quit' to exit):
 ```
 
-### Entering a query
-
-Type one or more terms separated by spaces and press Enter. The engine applies the same preprocessing as the indexer (stop word removal, stemming, etc.) before searching.
-
-```
-Enter search terms (or 'quit' to exit): information retrieval
-```
+Type one or more terms and press Enter. Type `quit` to exit.
 
 ### Understanding zero results
 
-If a query term does not appear in the index, zero results are returned. This is expected AND correct behaviour — it means either:
-
-1. The term is genuinely absent from the corpus (e.g. `home` / `mortgage` in the CACM computer-science corpus), or
-2. The stemmed form does not match any indexed stem.
-
-The engine prints the stemmed form of each query term so you can verify which stem was looked up:
+Zero results mean either the term is genuinely absent from the corpus, or its stemmed form does not match any stored stem. The engine always prints the stemmed form of each query term so you can verify:
 
 ```
 Stemmed terms : inform, retriev
@@ -339,22 +474,52 @@ Stemmed terms : inform, retriev
 
 ---
 
+## 🎨 Coloured Console Output
+
+Both `Code_Indexer_part2.py` and `webcrawler_indexer.py` use ANSI escape sequences to colour-code console output. All colour codes are defined in a single `C` helper class inside `webcrawler_indexer.py`, making them easy to adjust.
+
+| Colour | Meaning |
+|---|---|
+| 🔵 Blue (bold) | Section banners, input prompt, statistics header |
+| ⬜ Grey | Queue updates (`[N in queue] Crawling: …`) and statistics labels |
+| ⬛ White | URLs being crawled and all statistic values |
+| 🟢 Green (bold) | `✔ Indexed` confirmation per page; "Indexing Complete" message |
+| 🔴 Red | `✗ SKIP (fetch error)` — network or parse failures |
+| 🟡 Yellow | `⚠ URL frontier limit reached` — soft warning, not an error |
+| 🩵 Cyan | `index.dat written` — file output confirmations |
+
+> ANSI colours render in any modern terminal (macOS Terminal, Windows Terminal, Linux). On older Windows `cmd.exe` you may need to enable virtual terminal processing or use Windows Terminal instead.
+
+---
+
 ## 📊 Sample Output
 
-### Indexer console
+### Web crawler console
 
 ```
-Start Time: 09:14
-Indexing Complete: 09:17
+══════════════════════════════════════════════
+  Web Crawler + Indexer  starting...
+  Target  : http://example.com
+  DB      : webcrawler.db
+  Index   : index.dat
+══════════════════════════════════════════════
+  Start Time: 14:03
+[12 in queue]  Crawling: http://example.com/about
+  ✔ Indexed  doc_id=1    terms_so_far=284
+[11 in queue]  Crawling: http://example.com/contact
+  ✗ SKIP (fetch error): <urlopen error timed out>
+  ⚠  URL frontier limit (500) reached – no more links added.
+Indexing Complete, write to disk: 14:47
 index.dat written  : index.dat
-
-========== Indexer Statistics ==========
-Documents processed      : 570
-Total tokens parsed      : 482301
-Unique terms in index    : 18742
-Stop word matches        : 91430
-End Time                 : 09:17
-=========================================
+══════════════════════════════════════════════
+  Crawler Statistics
+══════════════════════════════════════════════
+  Documents processed   : 473
+  Total tokens parsed   : 2751668
+  Unique terms in index : 16056
+  Stop word matches     : 340221
+  End Time              : 15:12
+══════════════════════════════════════════════
 ```
 
 ### Search engine console
@@ -386,8 +551,6 @@ Search started : 10:45:03
     Cosine sim : 0.943201
     Candidates : 18
     [Simpson algorithm] cosine-similarity TF-IDF ranking
-
-  ...
 
 Search ended   : 10:45:03
 ------------------------------------------------------------
@@ -423,7 +586,7 @@ LIMIT 10;
 Filters are applied in this exact order so cheaper checks run first:
 
 | Step | Filter | Example discarded |
-|------|--------|-------------------|
+|---|---|---|
 | 1 | Stop word match | `the`, `and`, `from` |
 | 2 | Begins with punctuation | `'hello`, `.net` |
 | 3 | Length ≤ 2 characters | `is`, `go`, `ok` |
@@ -431,7 +594,7 @@ Filters are applied in this exact order so cheaper checks run first:
 | 5 | Porter Stemming applied | `running` → `run` |
 | 6 | Post-stem length ≤ 2 | stems that collapse too short |
 
-The same pipeline runs on **both** the indexer and the search engine query, guaranteeing that a user's raw query term always maps to the identical stem stored in the index.
+The same pipeline runs on the indexer, the web crawler, and the search engine query — guaranteeing that a user's raw query term always maps to the identical stem stored in the index.
 
 ---
 
@@ -461,6 +624,7 @@ The search engine ranks documents using cosine similarity between the query vect
 $$\cos(q, d) = \frac{\sum_{t} w_q(t) \cdot w_d(t)}{\sqrt{\sum_{t} w_q(t)^2} \times \sqrt{\sum_{t} w_d(t)^2}}$$
 
 Where:
+
 - $w_q(t) = \text{tf}_{t,q} \times \text{idf}_t$ — query term weight
 - $w_d(t) = \text{tf}_{t,d} \times \text{idf}_t$ — document term weight
 
@@ -472,10 +636,10 @@ A score of `1.0` means perfect alignment; `0.0` means no overlap in weighted ter
 
 ## 🧠 Memory Management
 
-The indexer is designed to handle arbitrarily large corpora without running out of memory:
+The indexer and web crawler are both designed to handle arbitrarily large corpora without running out of memory:
 
-- The in-memory `database` dictionary only ever holds the vocabulary of the **current document** being processed
-- Immediately after each document finishes, `flush_block()` writes all accumulated terms and postings to SQLite and clears the dictionary
+- The in-memory `database` dictionary only ever holds the vocabulary of the **current document or page** being processed
+- Immediately after each document or page finishes, `flush_block()` writes all accumulated terms and postings to SQLite and clears the dictionary
 - There is no fixed term count limit — peak memory is bounded by one document's vocabulary
 - Term IDs are persisted across flushes: `parsetoken()` queries `TermDictionary` before assigning a new ID, so the same term across different documents always maps to the same integer
 
@@ -483,17 +647,25 @@ The indexer is designed to handle arbitrarily large corpora without running out 
 
 ## 📦 Dependencies
 
-| Library      | Use                                        | Source        |
-|--------------|--------------------------------------------|---------------|
-| `sqlite3`    | Persistent inverted index storage          | Python stdlib |
-| `math`       | `log()` for IDF calculation                | Python stdlib |
-| `re`         | Regex tokenisation (`\W+` split)           | Python stdlib |
-| `os`         | Recursive directory walking                | Python stdlib |
-| `string`     | `string.punctuation` for filter check      | Python stdlib |
-| `time`       | Timestamps and `index.dat` generation      | Python stdlib |
-| `html.parser`| HTML tag stripping (indexer only)          | Python stdlib |
+### Core (standard library — no install needed)
 
-No `pip install` required. Python 3.x only.
+| Library | Use | Source |
+|---|---|---|
+| `sqlite3` | Persistent inverted index storage | Python stdlib |
+| `math` | `log()` for IDF calculation | Python stdlib |
+| `re` | Regex tokenisation (`\W+` split) | Python stdlib |
+| `os` | Directory walking and path handling | Python stdlib |
+| `string` | `string.punctuation` for filter check | Python stdlib |
+| `time` | Timestamps and `index.dat` generation | Python stdlib |
+| `urllib` | HTTP fetching in web crawler | Python stdlib |
+
+### Optional (web crawler only)
+
+| Library | Use | Install |
+|---|---|---|
+| `beautifulsoup4` | Higher-quality HTML tag stripping | `pip install beautifulsoup4` |
+
+> If `beautifulsoup4` is not installed, the crawler falls back to a built-in regex tag-stripper. The fallback works correctly but may leave more boilerplate text (navigation elements, inline scripts) in the indexed content.
 
 ---
 
@@ -505,6 +677,6 @@ Built for academic use — CS 3308 Information Retrieval, University of the Peop
 
 ## 📊 Results
 
-![Results](result.png)
+![Indexer results screenshot](result.png)
 
-![Results](result2.png)
+![Search engine results screenshot](result2.png)
